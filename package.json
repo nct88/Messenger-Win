@@ -1,0 +1,57 @@
+{
+  "name": "messenger-premium",
+  "version": "1.0.0",
+  "description": "Ứng dụng Messenger Desktop cho Windows - Chạy trên nhân Chrome (Chromium)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.messenger.premium",
+    "productName": "Messenger Premium",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "shortcutName": "Messenger Premium"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "custom_style.css",
+      "icon.ico",
+      "icon.png",
+      "package.json"
+    ]
+  },
+  "keywords": [
+    "messenger",
+    "facebook",
+    "desktop",
+    "electron"
+  ],
+  "author": "TruongIT",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
