@@ -71,7 +71,6 @@ File thành phẩm sẽ xuất hiện trong thư mục `dist/`.
 
 ## ⚠️ Lưu ý Bảo mật & Giới hạn
 - Mọi dữ liệu (Session, Cookies) được mã hóa và lưu tại `AppData` của máy cá nhân. Messlỏ **KHÔNG** gửi bất kỳ dữ liệu nhạy cảm nào ra máy chủ bên ngoài.
-- Dự án này đã sẵn sàng để phát triển thêm module check Server Key hoặc cấu hình Proxy tĩnh riêng cho mỗi nick (Phục vụ thương mại hóa/Nuôi nick số lượng lớn).
 
 ---
 
