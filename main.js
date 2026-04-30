@@ -221,7 +221,16 @@ function setupAutoUpdater() {
 
   autoUpdater.on('error', (err) => {
     if (isManualUpdateCheck) {
-      dialog.showErrorBox('Lỗi cập nhật', err == null ? "Lỗi không xác định" : (err.stack || err).toString());
+      let errorMessage = err == null ? "Lỗi không xác định" : (err.stack || err).toString();
+      if (errorMessage.includes('No published versions on GitHub') || errorMessage.includes('404 Not Found')) {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Thông tin cập nhật',
+          message: 'Chưa có bản cập nhật nào được phát hành. Bạn đang sử dụng phiên bản mới nhất!'
+        });
+      } else {
+        dialog.showErrorBox('Lỗi cập nhật', errorMessage);
+      }
       isManualUpdateCheck = false;
     }
   });
