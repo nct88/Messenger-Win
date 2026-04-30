@@ -1,5 +1,5 @@
 // ============================================
-// Messenger Premium Landing Page — Interactions
+// Messlỏ Landing Page — Interactions
 // ============================================
 
 // Smooth scroll for anchor links

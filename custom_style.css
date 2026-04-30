@@ -1,7 +1,3 @@
-/* ============================================================
-   MESSENGER PREMIUM — Chỉ override variable, để FB tự layout
-   ============================================================ */
-
 /* CHÌA KHÓA DUY NHẤT: Override biến CSS Facebook */
 :root,
 .__fb-light-mode,
@@ -19,6 +15,7 @@ div[role="banner"] {
   flex: 0 !important;
 }
 
+div[role="progressbar"],
 div[role="progressbar"].always-enable-animations {
   display: none !important;
   height: 0 !important;
@@ -34,10 +31,3 @@ footer { display: none !important; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.35); }
-
-/* Đẩy thông báo popup sang phải — tránh bị sidebar che */
-div[role="dialog"],
-div[role="alert"],
-div[role="status"] {
-  transform: translateX(52px) !important;
-}

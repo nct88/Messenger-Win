@@ -10,7 +10,7 @@
   },
   "build": {
     "appId": "com.messenger.premium",
-    "productName": "Messenger Premium",
+    "productName": "Messlỏ",
     "directories": {
       "output": "dist"
     },
@@ -31,7 +31,7 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "icon.ico",
       "uninstallerIcon": "icon.ico",
-      "shortcutName": "Messenger Premium"
+      "shortcutName": "Messlỏ"
     },
     "files": [
       "main.js",
@@ -55,3 +55,4 @@
     "electron-builder": "^24.13.3"
   }
 }
+
