@@ -285,15 +285,34 @@ document.getElementById('btn-j2team').onclick = () => {
   require('electron').shell.openExternal('https://chromewebstore.google.com/detail/j2team-security/hmlcjjclebjnfohgmgikjfnbmfkigocc');
 };
 
+// Lock button — click: lock, right-click: settings
+document.getElementById('btn-lock').onclick = () => {
+  const ls = ipcRenderer.sendSync('get-lock-settings');
+  if (ls.enabled && ls.hash) {
+    lockApp('verify');
+  } else {
+    lockApp('setup');
+  }
+};
+document.getElementById('btn-lock').oncontextmenu = (e) => {
+  e.preventDefault();
+  openLockSettings();
+};
+
 // ============================================================
 //  IPC UPDATES FROM MAIN
 // ============================================================
+let profileBadgeCounts = {};
+
 ipcRenderer.on('update-profile-badge', (event, { id, count }) => {
   const badge = document.getElementById(`badge-${id}`);
   if (badge) {
     badge.innerText = count > 9 ? '9+' : count;
     badge.style.display = count > 0 ? 'block' : 'none';
   }
+  profileBadgeCounts[id] = count || 0;
+  const totalCount = Object.values(profileBadgeCounts).reduce((a, b) => a + b, 0);
+  ipcRenderer.send('update-badge', totalCount);
 });
 
 ipcRenderer.on('update-profile-avatar', (event, { id, avatarUrl }) => {
@@ -322,3 +341,252 @@ if(settings.alwaysOnTop) {
 
 renderSidebar();
 switchProfile(activeProfileId);
+
+// ============================================================
+//  APP LOCK MODULE
+// ============================================================
+const crypto = require('crypto');
+
+const lockScreen = document.getElementById('lock-screen');
+const pinDotsContainer = document.getElementById('pin-dots');
+const lockMessage = document.getElementById('lock-message');
+const pinKeys = document.querySelectorAll('.pin-key[data-key]');
+const lockDisableBtn = document.getElementById('lock-disable-btn');
+
+const lock = {
+  mode: 'verify',    // 'verify' | 'setup' | 'confirm'
+  enteredPin: '',
+  setupPin: '',
+  wrongAttempts: 0,
+  idleTimer: null,
+  isLocked: false,
+};
+
+function hashPin(pin) {
+  return crypto.createHash('sha256').update(pin + '_messlo_salt_2026').digest('hex');
+}
+
+function lockApp(mode) {
+  lock.mode = mode || 'verify';
+  lock.enteredPin = '';
+  lock.setupPin = '';
+  lock.isLocked = true;
+  lockScreen.classList.add('active');
+  ipcRenderer.send('set-browserview-visibility', false);
+  updatePinDots();
+
+  if (mode === 'setup') {
+    lockMessage.textContent = 'Tạo mã PIN mới (4 số)';
+    lockMessage.className = 'lock-subtitle';
+    lockDisableBtn.style.display = 'none';
+  } else {
+    lockMessage.textContent = 'Nhập mã PIN để mở khoá';
+    lockMessage.className = 'lock-subtitle';
+    lockDisableBtn.style.display = 'none';
+  }
+}
+
+function unlockApp() {
+  lock.isLocked = false;
+  lock.enteredPin = '';
+  lock.wrongAttempts = 0;
+  lockScreen.classList.remove('active');
+  ipcRenderer.send('set-browserview-visibility', true);
+  resetIdleTimer();
+}
+
+function updatePinDots() {
+  const dots = pinDotsContainer.querySelectorAll('.pin-dot');
+  dots.forEach((dot, i) => {
+    dot.classList.toggle('filled', i < lock.enteredPin.length);
+  });
+}
+
+function handlePinKey(key) {
+  if (key === 'delete') {
+    lock.enteredPin = lock.enteredPin.slice(0, -1);
+    updatePinDots();
+    return;
+  }
+  if (lock.enteredPin.length >= 4) return;
+  lock.enteredPin += key;
+  updatePinDots();
+  if (lock.enteredPin.length === 4) {
+    setTimeout(handlePinComplete, 200);
+  }
+}
+
+function handlePinComplete() {
+  const ls = ipcRenderer.sendSync('get-lock-settings');
+
+  if (lock.mode === 'setup') {
+    // Step 1: Save first entry
+    lock.setupPin = lock.enteredPin;
+    lock.enteredPin = '';
+    lock.mode = 'confirm';
+    lockMessage.textContent = 'Xác nhận lại mã PIN';
+    lockMessage.className = 'lock-subtitle';
+    updatePinDots();
+
+  } else if (lock.mode === 'confirm') {
+    // Step 2: Confirm PIN match
+    if (lock.enteredPin === lock.setupPin) {
+      const hash = hashPin(lock.enteredPin);
+      ipcRenderer.send('save-lock-settings', { enabled: true, hash });
+      lockMessage.textContent = '✅ Đã thiết lập mã PIN!';
+      lockMessage.className = 'lock-subtitle success';
+      setTimeout(unlockApp, 700);
+    } else {
+      lockMessage.textContent = 'Không khớp! Nhập lại từ đầu';
+      lockMessage.className = 'lock-subtitle error';
+      pinDotsContainer.classList.add('shake');
+      setTimeout(() => {
+        pinDotsContainer.classList.remove('shake');
+        lock.mode = 'setup';
+        lock.enteredPin = '';
+        lock.setupPin = '';
+        lockMessage.textContent = 'Tạo mã PIN mới (4 số)';
+        lockMessage.className = 'lock-subtitle';
+        updatePinDots();
+      }, 600);
+    }
+
+  } else if (lock.mode === 'verify') {
+    // Verify PIN
+    const hash = hashPin(lock.enteredPin);
+    if (hash === ls.hash) {
+      lockMessage.textContent = '✅ Đã mở khoá!';
+      lockMessage.className = 'lock-subtitle success';
+      setTimeout(unlockApp, 300);
+    } else {
+      lock.wrongAttempts++;
+      lockMessage.textContent = `Sai mã PIN! (${lock.wrongAttempts}/5)`;
+      lockMessage.className = 'lock-subtitle error';
+      pinDotsContainer.classList.add('shake');
+      lock.enteredPin = '';
+      setTimeout(() => {
+        pinDotsContainer.classList.remove('shake');
+        updatePinDots();
+      }, 500);
+
+      if (lock.wrongAttempts >= 5) {
+        lockMessage.textContent = 'Quá 5 lần sai. Đợi 30 giây...';
+        pinKeys.forEach(k => k.disabled = true);
+        setTimeout(() => {
+          lock.wrongAttempts = 0;
+          lockMessage.textContent = 'Nhập mã PIN để mở khoá';
+          lockMessage.className = 'lock-subtitle';
+          pinKeys.forEach(k => k.disabled = false);
+        }, 30000);
+      }
+    }
+  }
+}
+
+// PIN pad click handlers
+pinKeys.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.getAttribute('data-key');
+    if (key) handlePinKey(key);
+  });
+});
+
+// Keyboard support on lock screen
+document.addEventListener('keydown', (e) => {
+  if (!lock.isLocked) return;
+  if (e.key >= '0' && e.key <= '9') handlePinKey(e.key);
+  else if (e.key === 'Backspace') handlePinKey('delete');
+});
+
+// Lock disable button (shown in footer)
+lockDisableBtn.onclick = () => {
+  if (confirm('Bạn có chắc muốn tắt khoá ứng dụng?')) {
+    ipcRenderer.send('save-lock-settings', { enabled: false, hash: '' });
+    unlockApp();
+  }
+};
+
+// ============================================================
+//  LOCK SETTINGS MODAL
+// ============================================================
+const lockSettingsOverlay = document.getElementById('lock-settings-overlay');
+const lsToggle = document.getElementById('ls-toggle-lock');
+const lsTimeout = document.getElementById('ls-timeout');
+const lsChangePin = document.getElementById('ls-change-pin');
+const lsRemovePin = document.getElementById('ls-remove-pin');
+
+function openLockSettings() {
+  const ls = ipcRenderer.sendSync('get-lock-settings');
+  lsToggle.classList.toggle('on', ls.enabled);
+  lsTimeout.value = String(ls.timeout || 5);
+  lsChangePin.style.display = ls.enabled ? 'block' : 'none';
+  lsRemovePin.style.display = ls.enabled ? 'block' : 'none';
+  lockSettingsOverlay.style.display = 'flex';
+  ipcRenderer.send('set-browserview-visibility', false);
+}
+
+lsToggle.onclick = () => {
+  const ls = ipcRenderer.sendSync('get-lock-settings');
+  if (!ls.enabled) {
+    // Enable: show setup PIN
+    lockSettingsOverlay.style.display = 'none';
+    lockApp('setup');
+  } else {
+    // Disable
+    ipcRenderer.send('save-lock-settings', { enabled: false, hash: '' });
+    lsToggle.classList.remove('on');
+    lsChangePin.style.display = 'none';
+    lsRemovePin.style.display = 'none';
+  }
+};
+
+lsTimeout.onchange = () => {
+  ipcRenderer.send('save-lock-settings', { timeout: parseInt(lsTimeout.value) });
+  resetIdleTimer();
+};
+
+lsChangePin.onclick = () => {
+  lockSettingsOverlay.style.display = 'none';
+  lockApp('setup');
+};
+
+lsRemovePin.onclick = () => {
+  if (confirm('Xoá mã PIN? Khoá ứng dụng sẽ bị tắt.')) {
+    ipcRenderer.send('save-lock-settings', { enabled: false, hash: '' });
+    lockSettingsOverlay.style.display = 'none';
+    ipcRenderer.send('set-browserview-visibility', true);
+    lsToggle.classList.remove('on');
+  }
+};
+
+document.getElementById('ls-close').onclick = () => {
+  lockSettingsOverlay.style.display = 'none';
+  ipcRenderer.send('set-browserview-visibility', true);
+};
+
+// ============================================================
+//  IDLE DETECTION — Auto-lock after timeout
+// ============================================================
+function resetIdleTimer() {
+  if (lock.idleTimer) clearTimeout(lock.idleTimer);
+  const ls = ipcRenderer.sendSync('get-lock-settings');
+  if (ls.enabled && ls.timeout > 0) {
+    lock.idleTimer = setTimeout(() => {
+      if (!lock.isLocked) lockApp('verify');
+    }, ls.timeout * 60 * 1000);
+  }
+}
+
+['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
+  document.addEventListener(evt, () => {
+    if (!lock.isLocked) resetIdleTimer();
+  }, { passive: true });
+});
+
+// ============================================================
+//  INIT LOCK — Lock on startup if enabled
+// ============================================================
+if (settings.appLockEnabled && settings.appLockHash) {
+  lockApp('verify');
+}
+resetIdleTimer();

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-05-01
+### Added
+- **🔒 Khoá ứng dụng bằng PIN (App Lock):** Bảo mật tin nhắn với mã PIN 4 số. Hỗ trợ thiết lập/đổi/xoá PIN, tự động khoá sau thời gian idle (1/3/5/10/30 phút), khoá khi khởi động app, rate-limit 30s sau 5 lần sai. Giao diện PIN pad premium với animation pop/shake. Click nút 🔒 trên sidebar phải để khoá, click phải để mở cài đặt.
+- **🔴 Badge riêng từng Profile:** Mỗi tài khoản trên sidebar trái hiển thị badge tin nhắn chưa đọc riêng biệt. Tự động đếm từ page title Messenger mỗi 3 giây. Tổng hợp badge hiển thị trên taskbar overlay.
+- **Nút Khoá (🔒)** trên thanh công cụ bên phải.
+- **Modal Cài đặt khoá:** Toggle bật/tắt, chọn thời gian auto-lock, đổi PIN, xoá PIN.
+- **Hỗ trợ bàn phím** trên màn hình khoá: gõ số 0-9 và Backspace.
+- **Idle Detection:** Phát hiện không hoạt động qua mousemove, keydown, scroll, touchstart để auto-lock.
+
 ## [1.1.1] - 2026-05-01
 ### Added
 - **Thanh công cụ bên phải (Right Sidebar):** Tách riêng thanh công cụ sang phía bên phải giao diện, gồm: Trang chủ, Quay lại, Tải lại, Phóng to/Thu nhỏ, Chế độ tối/sáng, Toàn màn hình, Ghim cửa sổ.

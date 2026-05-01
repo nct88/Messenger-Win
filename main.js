@@ -59,6 +59,9 @@ const DEFAULT_SETTINGS = {
   alwaysOnTop: false,
   blockSeen: false,
   blockTyping: false,
+  appLockEnabled: false,
+  appLockHash: '',
+  appLockTimeout: 5,
 };
 
 function loadSettings() {
@@ -359,6 +362,33 @@ function setupWebContents(contents, profileId) {
     } catch(e) {}
   }, 5000);
 
+  // ── Unread badge per profile ──
+  const unreadInterval = setInterval(async () => {
+    if (contents.isDestroyed()) {
+      clearInterval(unreadInterval);
+      return;
+    }
+    try {
+      const count = await contents.executeJavaScript(`
+        (function() {
+          var title = document.title || '';
+          var match = title.match(/\\((\\d+)\\)/);
+          if (match) return parseInt(match[1]);
+          var badges = document.querySelectorAll('[data-testid="MWJewelThreadListUnread"], span.pq6dq46d');
+          var total = 0;
+          badges.forEach(function(b) {
+            var n = parseInt(b.textContent);
+            if (!isNaN(n)) total += n;
+          });
+          return total;
+        })();
+      `);
+      if (mainWindow && !mainWindow.isDestroyed() && profileId) {
+        mainWindow.webContents.send('update-profile-badge', { id: profileId, count: count || 0 });
+      }
+    } catch(e) {}
+  }, 3000);
+
   if (app.isPackaged) {
     contents.on('before-input-event', (event, input) => {
       if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) event.preventDefault();
@@ -588,6 +618,24 @@ function createWindow() {
     event.returnValue = {
       isDarkMode: settings.isDarkMode,
       alwaysOnTop: settings.alwaysOnTop,
+      appLockEnabled: settings.appLockEnabled,
+      appLockHash: settings.appLockHash,
+      appLockTimeout: settings.appLockTimeout,
+    };
+  });
+
+  ipcMain.on('save-lock-settings', (event, data) => {
+    if (data.enabled !== undefined) settings.appLockEnabled = data.enabled;
+    if (data.hash !== undefined) settings.appLockHash = data.hash;
+    if (data.timeout !== undefined) settings.appLockTimeout = data.timeout;
+    saveSettings(settings);
+  });
+
+  ipcMain.on('get-lock-settings', (event) => {
+    event.returnValue = {
+      enabled: settings.appLockEnabled,
+      hash: settings.appLockHash,
+      timeout: settings.appLockTimeout,
     };
   });
 }

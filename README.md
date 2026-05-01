@@ -24,15 +24,13 @@
   <img src="preview.png" alt="Messlỏ Preview" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);"/>
 </p>
 
-## ✨ Tính năng nổi bật (Bản cập nhật v1.1.1)
+## ✨ Tính năng nổi bật (Bản cập nhật v1.2.0)
 
-### 🆕 Mới trong v1.1.1
-- 🧭 **Thanh công cụ bên phải (Right Sidebar)** — Giao diện mới với thanh công cụ tách riêng sang bên phải, thanh trái chỉ chứa danh sách nick. Hỗ trợ nhiều tài khoản hơn mà không bị tràn.
-- 🏠 **Nút Trang chủ Messenger** — Quay về trang chủ tin nhắn nhanh chóng khi đang lạc ở trang cá nhân, nhóm, hay bất kỳ đâu.
-- ◀️ **Nút Quay lại (Back)** — Điều hướng lùi về trang trước đó, giống nút Back trên trình duyệt.
-- 📜 **Cuộn danh sách nick** — Hỗ trợ cuộn chuột, kéo chuột (drag), và nút mũi tên ▲▼ tự ẩn/hiện khi nhiều nick.
+### 🆕 Mới trong v1.2.0
+- 🔒 **Khoá ứng dụng bằng PIN (App Lock)** — Bảo mật tin nhắn với mã PIN 4 số. Tự động khoá sau thời gian không hoạt động (1–30 phút). Giao diện PIN pad premium, rate-limit sau 5 lần sai, hỗ trợ bàn phím. Click nút 🔒 sidebar phải để khoá, click phải để cài đặt.
+- 🔴 **Badge riêng từng Profile** — Mỗi nick hiển thị badge tin nhắn chưa đọc riêng biệt trên sidebar trái. Tự động đếm mỗi 3s và tổng hợp lên taskbar overlay.
 
-### Các tính năng chính
+### Có trong v1.1.x
 - 🛡️ **Bảo mật Quyền riêng tư (Tương tự J2TEAM Security)** — Hỗ trợ chặn hoàn toàn trạng thái "Đã xem" (Read Receipts) và "Đang nhập" (Typing Indicator). Bạn có thể lướt tin nhắn vô hình một cách an toàn nhất! Bật/tắt dễ dàng qua Menu khay hệ thống (System Tray).
 - ☁️ **Cập nhật Tự động (OTA Auto-Updater)** — Tải xuống và cài đặt trực tiếp các bản cập nhật mới ngay bên trong phần mềm chỉ với một thao tác click. Không cần truy cập Github hay tải file thủ công nữa.
 - 👥 **Quản lý Đa Tài Khoản (Multi-Account)** — Đăng nhập và sử dụng nhiều tài khoản Messenger cùng lúc.
@@ -72,7 +70,7 @@ File thành phẩm sẽ xuất hiện trong thư mục `dist/`.
 ```bash
 npm run build -p always
 ```
-Sau đó tạo Release mới trên Github và đính kèm 2 tệp trong thư mục `dist`: `Messlỏ Setup 1.1.1.exe` và `latest.yml`.
+Sau đó tạo Release mới trên Github và đính kèm 2 tệp trong thư mục `dist`: `Messlỏ Setup 1.2.0.exe` và `latest.yml`.
 
 ## 📂 Cấu trúc dự án
 
