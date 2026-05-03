@@ -1,6 +1,6 @@
 {
   "name": "messenger-premium",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Ứng dụng Messenger Desktop cho Windows - Chạy trên nhân Chrome (Chromium)",
   "main": "main.js",
   "scripts": {

@@ -690,8 +690,76 @@ app.whenReady().then(() => {
   registerGlobalShortcuts();
   setupAutoUpdater();
 
-  // Mở trang Donate khi khởi động ứng dụng
-  shell.openExternal('https://d.truong.it/donate');
+  // --- KIỂM TRA DONATE TRƯỚC KHI MỞ TRANG (HWID-based) ---
+  (async () => {
+    try {
+      const { execSync } = require('child_process');
+      const https = require('https');
+
+      // Bước 0: Lấy HWID máy hiện tại
+      let hwid = 'UNKNOWN';
+      try {
+        hwid = execSync('wmic csproduct get UUID', { encoding: 'utf8' })
+          .split('\n').map(l => l.trim()).filter(l => l && l !== 'UUID')[0] || '';
+      } catch {}
+      if (!hwid || hwid === 'UNKNOWN') {
+        try {
+          hwid = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid', { encoding: 'utf8' })
+            .match(/REG_SZ\s+(.+)/)?.[1]?.trim() || 'UNKNOWN';
+        } catch {}
+      }
+
+      if (!hwid || hwid === 'UNKNOWN') {
+        shell.openExternal('https://d.truong.it/donate');
+        return;
+      }
+
+      // Bước 1: Kiểm tra cache local (tránh gọi API mỗi lần mở app)
+      const donateStatusFile = path.join(app.getPath('userData'), 'donate_status.json');
+      let shouldShowDonate = true;
+
+      try {
+        if (fs.existsSync(donateStatusFile)) {
+          const cache = JSON.parse(fs.readFileSync(donateStatusFile, 'utf8'));
+          if (cache.hwid === hwid && cache.donated === true) {
+            shouldShowDonate = false;
+          }
+        }
+      } catch {}
+
+      // Bước 2: Nếu chưa có cache → kiểm tra API
+      if (shouldShowDonate) {
+        try {
+          const apiResult = await new Promise((resolve, reject) => {
+            const url = `https://donate-api.truong-it.workers.dev/hwid/check?id=${encodeURIComponent(hwid)}`;
+            https.get(url, { timeout: 5000 }, (res) => {
+              let data = '';
+              res.on('data', chunk => data += chunk);
+              res.on('end', () => {
+                try { resolve(JSON.parse(data)); } catch { resolve(null); }
+              });
+            }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+          });
+
+          if (apiResult && apiResult.donated === true) {
+            shouldShowDonate = false;
+            // Cache kết quả để lần sau không cần gọi API
+            const cacheData = { hwid, donated: true, checked_at: new Date().toISOString() };
+            fs.writeFileSync(donateStatusFile, JSON.stringify(cacheData), 'utf8');
+          }
+        } catch {
+          // API lỗi → vẫn hiện donate (an toàn)
+        }
+      }
+
+      if (shouldShowDonate) {
+        shell.openExternal(`https://d.truong.it/donate?hwid=${encodeURIComponent(hwid)}`);
+      }
+    } catch {
+      // Fallback: mở donate bình thường nếu có lỗi bất kỳ
+      shell.openExternal('https://d.truong.it/donate');
+    }
+  })();
 
   app.on('second-instance', () => {
     if (mainWindow) {
