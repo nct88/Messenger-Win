@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-05-05
+### Sửa lỗi nghiêm trọng
+- **🔧 Sửa lỗi đăng nhập sai tài khoản (Session Isolation):** Khắc phục lỗi khi đăng nhập tài khoản A nhưng hiển thị tài khoản B. Nguyên nhân: cookies/session cũ của partition bị tái sử dụng khi tạo profile mới hoặc khi session bị lỗi.
+
+### Tính năng mới
+- **🔓 Nút "Đăng xuất & Đăng nhập lại":** Thêm nút đăng xuất trực tiếp trong modal chỉnh sửa tài khoản (click phải vào nick). Xóa sạch toàn bộ cookies, cache, localStorage, IndexedDB của profile đó và cho phép đăng nhập lại tài khoản khác ngay lập tức.
+- **🧹 Tự động dọn session khi tạo profile mới:** Mỗi profile mới được tạo sẽ tự động xóa sạch session cũ (nếu có) trước khi mở trang đăng nhập, đảm bảo không bao giờ dùng lại cookie của tài khoản cũ.
+- **🆔 ID Profile an toàn hơn:** Sử dụng `crypto.randomUUID()` thay vì `Date.now()` để tạo ID profile, tránh trùng lặp khi tạo nhiều nick liên tiếp.
+
+### Cải tiến
+- **Giao diện nút đăng xuất:** Thiết kế nút với icon, hiệu ứng hover, trạng thái loading (spinner) và phản hồi thành công/lỗi trực quan.
+- **Xử lý logout toàn diện:** Khi đăng xuất, hệ thống sẽ: (1) Hủy BrowserView hiện tại, (2) Xóa sạch 8 loại storage data, (3) Xóa cache và auth cache, (4) Tạo lại BrowserView mới với session sạch.
+
 ## [1.2.1] - 2026-05-03
 ### Changed
 - **Donate HWID-based:** Không còn mở trang donate mỗi lần khởi động. Kiểm tra HWID máy qua API, cache kết quả local. Chỉ hiện donate cho người chưa ủng hộ.

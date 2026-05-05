@@ -24,6 +24,12 @@ const path = require('path');
 const fs = require('fs');
 
 // ============================================================
+//  HỆ THỐNG DOWNLOAD
+// ============================================================
+let activeDownloads = new Map(); // id -> { item, filename, savePath, received, total }
+let downloadCounter = 0;
+
+// ============================================================
 //  CẤU HÌNH CHUNG
 // ============================================================
 const MESSENGER_URL = 'https://www.facebook.com/messages';
@@ -272,7 +278,54 @@ function updateBrowserViewBounds() {
   });
 }
 
+function setupDownloadHandler(sess) {
+  if (sess._downloadHandlerSet) return;
+  sess._downloadHandlerSet = true;
+
+  sess.on('will-download', (event, item, webContents) => {
+    const id = ++downloadCounter;
+    const filename = item.getFilename() || 'download';
+    const downloadsPath = app.getPath('downloads');
+    const savePath = path.join(downloadsPath, filename);
+    item.setSavePath(savePath);
+
+    const total = item.getTotalBytes();
+    activeDownloads.set(id, { item, filename, savePath, received: 0, total });
+
+    // Notify renderer about new download
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('download-started', {
+        id, filename, savePath, total,
+      });
+    }
+
+    item.on('updated', (event, state) => {
+      const received = item.getReceivedBytes();
+      const dl = activeDownloads.get(id);
+      if (dl) dl.received = received;
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('download-progress', {
+          id, received, total: item.getTotalBytes(), state,
+        });
+      }
+    });
+
+    item.once('done', (event, state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('download-done', {
+          id, state, savePath, filename,
+        });
+      }
+      activeDownloads.delete(id);
+    });
+  });
+}
+
 function setupWebContents(contents, profileId) {
+  // Setup download handler for this view's session
+  setupDownloadHandler(contents.session);
+
   contents.setWindowOpenHandler(({ url }) => {
     if (url.includes('facebook.com') || url.includes('messenger.com') || url.includes('fbcdn.net')) {
       return { action: 'allow' };
@@ -428,6 +481,9 @@ function createWindow() {
   });
 
   app.on('session-created', (sess) => {
+    // Setup download handler on every new session
+    setupDownloadHandler(sess);
+
     sess.webRequest.onBeforeRequest({ urls: ['*://*.facebook.com/*', '*://*.messenger.com/*'] }, (details, callback) => {
       let cancel = false;
       
@@ -536,6 +592,63 @@ function createWindow() {
     updateBrowserViewBounds();
   });
 
+  // ── Đăng xuất / Xóa session cho 1 profile ──
+  ipcMain.on('logout-profile', async (event, profileData) => {
+    const { id, partition } = profileData;
+    try {
+      // 1. Destroy BrowserView nếu đang tồn tại
+      if (browserViews[id]) {
+        if (mainWindow && mainWindow.getBrowserView() === browserViews[id]) {
+          mainWindow.setBrowserView(null);
+        }
+        browserViews[id].webContents.destroy();
+        delete browserViews[id];
+      }
+
+      // 2. Xóa sạch cookies + cache + storage của partition
+      const sess = session.fromPartition(partition);
+      await sess.clearStorageData({
+        storages: ['cookies', 'localstorage', 'sessionstorage', 'cachestorage', 'indexdb', 'shadercache', 'websql', 'serviceworkers'],
+      });
+      await sess.clearCache();
+      await sess.clearAuthCache();
+
+      // 3. Tạo lại BrowserView mới với session sạch
+      const view = new BrowserView({
+        webPreferences: {
+          partition: partition,
+          preload: path.join(__dirname, 'preload.js'),
+          contextIsolation: true,
+          nodeIntegration: false,
+        }
+      });
+      browserViews[id] = view;
+      setupWebContents(view.webContents, id);
+      view.webContents.loadURL(MESSENGER_URL, { userAgent: USER_AGENT });
+
+      // 4. Hiển thị lại
+      if (activeProfileId === id) {
+        mainWindow.setBrowserView(view);
+        updateBrowserViewBounds();
+      }
+
+      event.reply('logout-profile-done', { id, success: true });
+    } catch (err) {
+      event.reply('logout-profile-done', { id, success: false, error: err.message });
+    }
+  });
+
+  // ── Xóa session sạch khi tạo profile mới (đảm bảo không dùng lại cookie cũ) ──
+  ipcMain.on('clear-new-profile-session', async (event, partition) => {
+    try {
+      const sess = session.fromPartition(partition);
+      await sess.clearStorageData({
+        storages: ['cookies', 'localstorage', 'sessionstorage', 'cachestorage', 'indexdb', 'shadercache', 'websql', 'serviceworkers'],
+      });
+      await sess.clearCache();
+    } catch (err) {}
+  });
+
   ipcMain.on('set-browserview-visibility', (event, visible) => {
     if (!mainWindow) return;
     if (visible && activeProfileId && browserViews[activeProfileId]) {
@@ -637,6 +750,29 @@ function createWindow() {
       hash: settings.appLockHash,
       timeout: settings.appLockTimeout,
     };
+  });
+
+  // ── Download IPC handlers ──
+  ipcMain.on('open-download-file', (event, filePath) => {
+    if (filePath && fs.existsSync(filePath)) {
+      shell.openPath(filePath);
+    }
+  });
+
+  ipcMain.on('open-download-folder', (event, filePath) => {
+    if (filePath && fs.existsSync(filePath)) {
+      shell.showItemInFolder(filePath);
+    } else {
+      shell.openPath(app.getPath('downloads'));
+    }
+  });
+
+  ipcMain.on('cancel-download', (event, id) => {
+    const dl = activeDownloads.get(id);
+    if (dl && dl.item) {
+      dl.item.cancel();
+      activeDownloads.delete(id);
+    }
   });
 }
 
