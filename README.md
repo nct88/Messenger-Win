@@ -24,7 +24,12 @@
   <img src="preview.png" alt="Messlỏ Preview" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);"/>
 </p>
 
-## ✨ Tính năng nổi bật (Bản cập nhật v1.4.2)
+## ✨ Tính năng nổi bật (Bản cập nhật v1.5.3)
+
+### 🆕 Mới trong v1.5.3
+- 🌐 **Đăng nhập/xác thực Google & Apple mở bằng trình duyệt hệ thống** thay vì trong app — Google vẫn chặn WebView nhúng dù đã vá nhiều lớp (UA, Client Hints, `navigator.userAgentData`); mở bằng trình duyệt thật là cách đáng tin cậy duy nhất. Popup Facebook/Messenger vẫn mở trong app như cũ.
+- 🔑 **Xử lý xác thực Passkey/WebAuthn** cho popup Facebook/Messenger (`session.on('select-webauthn-account', ...)`).
+- 🌐 **Tự động cập nhật User-Agent** — App tự đồng bộ theo bản Chrome/Edge Stable mới nhất qua API chính thức.
 
 ### 🆕 Mới trong v1.4.x
 - 🛡️ **Vá bảo mật (v1.4.2)** — Khắc phục lỗ thực thi mã từ xa (RCE) qua tên file tải về và siết kiểm tra origin của popup đăng nhập; thêm Content-Security-Policy cho giao diện shell.
@@ -77,7 +82,7 @@ File thành phẩm sẽ xuất hiện trong thư mục `dist/`.
 ```bash
 npm run build -p always
 ```
-Sau đó tạo Release mới trên Github và đính kèm 2 tệp trong thư mục `dist`: `Messlo-Setup-1.4.2.exe` và `latest.yml`.
+Sau đó tạo Release mới trên Github và đính kèm 2 tệp trong thư mục `dist`: `Messlo-Setup-1.5.3.exe` và `latest.yml`.
 
 ## 📂 Cấu trúc dự án
 

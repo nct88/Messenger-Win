@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.3] - 2026-09-08
+### Thay đổi & Sửa lỗi
+- **🌐 Khắc phục triệt để lỗi Google Sign-in "Couldn't sign you in - This browser or app may not be secure":**
+  - Mọi yêu cầu mở popup hoặc điều hướng (`will-navigate`, `will-redirect`, `setWindowOpenHandler`) tới các dịch vụ OAuth bên ngoài như Google (`accounts.google.com`) và Apple (`appleid.apple.com`) nay **luôn được chặn trong app và chuyển hướng an toàn sang trình duyệt mặc định của hệ thống** (Chrome, Edge,...).
+  - Ngăn chặn hoàn toàn việc BrowserView chính hoặc popup con bị chuyển hướng sang trang lỗi Google làm kẹt giao diện ứng dụng.
+  - Hiển thị hộp thoại thông báo hướng dẫn người dùng khi kích hoạt đăng nhập ngoài, kèm khuyến nghị đăng nhập trực tiếp bằng Email/SĐT + Mật khẩu Facebook để phiên làm việc được lưu trực tiếp vào nick trong Messlỏ.
+  - Hỗ trợ đầy đủ việc chọn tài khoản Passkey/WebAuthn và đồng bộ User-Agent / Client Hints (`sec-ch-ua*`) mới nhất.
+
+## [1.5.2] - 2026-07-01
+### Sửa lỗi (thử nghiệm — chưa xác nhận hết bằng tài khoản thật)
+- **🔑 Thêm xử lý xác thực Passkey/WebAuthn:** Xác định lại nguyên nhân "Couldn't sign you in" ở bản 1.5.1: lỗi xảy ra ngay bước Facebook yêu cầu xác nhận qua **passkey** của tài khoản Google liên kết (không phải bước OAuth cũ). Theo tài liệu chính thức của Electron, `navigator.credentials.get()` khi có nhiều credential khả dụng cần app tự xử lý sự kiện `session.on('select-webauthn-account', ...)` để hiển thị UI chọn — nếu không, Electron tự hủy request với lỗi `NotAllowedError`. Đã thêm xử lý này (tự chọn nếu chỉ có 1 tài khoản, hiện hộp thoại chọn nếu nhiều hơn).
+- **Lưu ý:** Electron có một số issue đã biết (GitHub #41472, #33353) về passkey/Windows Hello bị lặp lỗi trong BrowserView, đã bị chính đội Electron đóng ở trạng thái "không có kế hoạch sửa" — nên bản vá này giải quyết đúng yêu cầu tài liệu hoá, nhưng **chưa chắc chắn 100%** đã hết lỗi nếu Electron còn giới hạn sâu hơn ở tầng passkey/Windows Hello. Cần xác nhận lại bằng tài khoản thật.
+
+## [1.5.1] - 2026-07-01
+### Sửa lỗi
+- **🔐 Sửa dứt điểm lỗi "Couldn't sign you in" khi đăng nhập Facebook bằng Google liên kết:** Bản 1.5.0 mới sửa được UA logic ở mức session, nhưng thực nghiệm bằng app thật cho thấy 2 lỗ hổng còn sót: (1) `session.setUserAgent()` không kịp áp dụng cho **request đầu tiên** của popup OAuth mới tạo; (2) Chromium tự sinh header Client Hints (`sec-ch-ua`) theo **engine thật** (Chromium 122) bất kể User-Agent đã giả lập, khiến 2 tín hiệu mâu thuẫn nhau — đúng kiểu dấu hiệu Google dùng để phát hiện trình duyệt giả mạo. Nay ép cả `User-Agent` lẫn `sec-ch-ua*` ở tầng network (`onBeforeSendHeaders`) cho mọi request trong session, đảm bảo nhất quán ngay từ request đầu tiên.
+
+## [1.5.0] - 2026-07-01
+### Sửa lỗi
+- **🔐 Sửa lỗi đăng nhập Facebook bằng Google liên kết:** Popup OAuth mở trong app (từ v1.4.0) nhưng vẫn dùng User-Agent mặc định của Electron (chứa `Electron/x.x.x`) thay vì UA giả lập Chrome — Google chặn thẳng với lỗi `disallowed_useragent`. Nay toàn bộ session của mỗi profile (kể cả popup OAuth kế thừa session đó) đều được đặt UA chuẩn ngay từ đầu.
+
+### Tính năng mới
+- **🌐 Tự động cập nhật User-Agent:** App tự kiểm tra và đồng bộ theo bản Chrome/Edge Stable mới nhất qua 2 API chính thức (Chrome Version History, Edge Update API), cache local (7 ngày/lần), có fallback an toàn khi offline hoặc API đổi định dạng — không cần tự sửa tay UA mỗi khi trình duyệt ra bản mới.
+
 ## [1.4.3] - 2026-06-27
 ### Thay đổi
 - **Gỡ bỏ tính năng tự mở trang donate:** App không còn tự mở trang ủng hộ khi khởi động. Đã loại bỏ toàn bộ phần kiểm tra HWID + gọi API + mở trang donate trong tiến trình chính.

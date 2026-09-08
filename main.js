@@ -22,6 +22,7 @@ const {
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 // ============================================================
 //  HỆ THỐNG DOWNLOAD
@@ -34,8 +35,115 @@ let downloadCounter = 0;
 // ============================================================
 const MESSENGER_URL = 'https://www.facebook.com/messages';
 const APP_ID = 'com.messenger.premium';
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.156 Safari/537.36';
+
+// Dự phòng khi chưa có cache hoặc mọi lần fetch bản mới đều lỗi (offline,
+// API đổi định dạng...). Nên tự tay cập nhật vài tháng/lần nếu cơ chế tự
+// động bên dưới ngừng hoạt động lâu dài.
+const USER_AGENT_FALLBACK =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.7827.196 Safari/537.36 Edg/149.0.4022.62';
+// Giá trị THỰC TẾ dùng khi load/loadURL/setUserAgent — nạp từ cache lúc khởi
+// động, có thể bị refreshUserAgent() ghi đè ngầm giữa phiên (session mở SAU
+// thời điểm ghi đè sẽ nhận UA mới).
+let USER_AGENT = USER_AGENT_FALLBACK;
+
+// ============================================================
+//  TỰ ĐỘNG CẬP NHẬT USER-AGENT (Chrome/Edge bản Stable mới nhất)
+// ============================================================
+const UA_CACHE_PATH = path.join(app.getPath('userData'), 'ua_cache.json');
+const UA_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 ngày mới fetch lại
+const VERSION_PATTERN = /^\d+\.\d+\.\d+\.\d+$/;
+const UA_PATTERN = /^Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/\d+\.\d+\.\d+\.\d+ Safari\/537\.36 Edg\/\d+\.\d+\.\d+\.\d+$/;
+
+function buildUserAgent(chromeVersion, edgeVersion) {
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36 Edg/${edgeVersion}`;
+}
+
+// Client Hints (Sec-CH-UA...) do Chromium tự sinh dựa trên ENGINE THẬT (vd
+// Electron 29 = Chromium 122), KHÔNG dựa theo chuỗi User-Agent đã giả lập —
+// nên nếu không sửa, sec-ch-ua sẽ lộ ra "Chromium 122" trong khi User-Agent
+// lại khai Chrome/Edge bản mới hơn nhiều. Sự mâu thuẫn 2 tín hiệu này chính
+// là dấu hiệu các dịch vụ như Google dùng để phát hiện trình duyệt giả mạo.
+function buildClientHints(userAgent) {
+  const chrome = userAgent.match(/Chrome\/(\d+)\.(\d+\.\d+\.\d+)/);
+  const edge = userAgent.match(/Edg\/(\d+)\.(\d+\.\d+\.\d+)/);
+  const chromeMajor = chrome ? chrome[1] : '150';
+  const chromeFull = chrome ? `${chrome[1]}.${chrome[2]}` : '150.0.7871.47';
+  const edgeMajor = edge ? edge[1] : '149';
+  const edgeFull = edge ? `${edge[1]}.${edge[2]}` : '149.0.4022.98';
+  return {
+    'sec-ch-ua': `"Not)A;Brand";v="99", "Microsoft Edge";v="${edgeMajor}", "Chromium";v="${chromeMajor}"`,
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-ch-ua-platform-version': '"19.0.0"',
+    'sec-ch-ua-full-version': `"${edgeFull}"`,
+    'sec-ch-ua-full-version-list': `"Not)A;Brand";v="99.0.0.0", "Microsoft Edge";v="${edgeFull}", "Chromium";v="${chromeFull}"`,
+  };
+}
+
+// Đọc cache LOCAL đồng bộ lúc khởi động — không chờ mạng, không chặn startup.
+function loadCachedUserAgent() {
+  try {
+    const cache = JSON.parse(fs.readFileSync(UA_CACHE_PATH, 'utf8'));
+    if (cache && typeof cache.userAgent === 'string' && UA_PATTERN.test(cache.userAgent)) {
+      USER_AGENT = cache.userAgent;
+    }
+    return cache;
+  } catch {
+    return null;
+  }
+}
+
+function fetchJSON(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { timeout: 6000, headers: { 'User-Agent': USER_AGENT_FALLBACK } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    }).on('error', reject).on('timeout', function () { this.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+// Chrome Version History API — chính thức, công khai, không cần key.
+async function fetchLatestChromeVersion() {
+  const data = await fetchJSON('https://versionhistory.googleapis.com/v1/chrome/platforms/win64/channels/stable/versions');
+  const version = data?.versions?.[0]?.version;
+  if (!version || !VERSION_PATTERN.test(version)) throw new Error('Chrome version response không hợp lệ');
+  return version;
+}
+
+// Edge Update API — chính thức, công khai, không cần key.
+async function fetchLatestEdgeVersion() {
+  const products = await fetchJSON('https://edgeupdates.microsoft.com/api/products');
+  const stable = Array.isArray(products) ? products.find(p => p.Product === 'Stable') : null;
+  const release = stable?.Releases?.find(r => r.Platform === 'Windows' && r.Architecture === 'x64');
+  const version = release?.ProductVersion;
+  if (!version || !VERSION_PATTERN.test(version)) throw new Error('Edge version response không hợp lệ');
+  return version;
+}
+
+// Fetch ngầm (fire-and-forget) — mọi lỗi (offline, API đổi định dạng...) đều
+// bị nuốt lặng lẽ, giữ nguyên USER_AGENT hiện có (cache cũ hoặc fallback).
+async function refreshUserAgent() {
+  try {
+    const [chromeVersion, edgeVersion] = await Promise.all([
+      fetchLatestChromeVersion(),
+      fetchLatestEdgeVersion(),
+    ]);
+    const candidate = buildUserAgent(chromeVersion, edgeVersion);
+    if (!UA_PATTERN.test(candidate)) return;
+    USER_AGENT = candidate;
+    fs.writeFileSync(UA_CACHE_PATH, JSON.stringify({ userAgent: candidate, checkedAt: Date.now() }, null, 2), 'utf8');
+  } catch {}
+}
+
+function maybeRefreshUserAgent() {
+  const cache = loadCachedUserAgent();
+  const isStale = !cache || typeof cache.checkedAt !== 'number' || (Date.now() - cache.checkedAt) > UA_REFRESH_INTERVAL_MS;
+  if (isStale) refreshUserAgent();
+}
 
 // ============================================================
 //  CHỐNG CHẠY TRÙNG LẶP (Single Instance Lock)
@@ -326,25 +434,55 @@ function setupWebContents(contents, profileId) {
   // Setup download handler for this view's session
   setupDownloadHandler(contents.session);
 
-  // ── Host được phép mở popup trong app (OAuth, login, v.v.) ──
-  // So khớp theo HOSTNAME thật + bắt buộc HTTPS. KHÔNG dùng url.includes() vì
-  // substring khiến `https://evil.com/?ref=facebook.com` hay `facebook.com.evil.tld` cũng lọt.
-  const ALLOWED_POPUP_HOSTS = [
-    'facebook.com', 'messenger.com', 'fbcdn.net',
-    'google.com',   // Google OAuth (accounts.google.com)
-    'apple.com',    // Apple Sign-In (appleid.apple.com)
+  // ── Host được phép chạy và mở popup TRONG APP (chia sẻ session với BrowserView cha) ──
+  // Chỉ các host thuộc hệ sinh thái Facebook/Messenger.
+  // Google/Apple/OAuth bên ngoài không chạy trong app do Google chặn trình duyệt nhúng.
+  const IN_APP_HOSTS = [
+    'facebook.com',
+    'messenger.com',
+    'fbcdn.net',
+    'meta.com',
+    'fbsbx.com',
+    'fb.com',
+    'workplace.com',
   ];
+
   const isAllowedHost = (rawUrl, hosts) => {
     let u;
     try { u = new URL(rawUrl); } catch { return false; }
-    if (u.protocol !== 'https:') return false;
+    if (u.protocol === 'about:' || u.protocol === 'javascript:') return true;
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
     const host = u.hostname.toLowerCase();
     return hosts.some(h => host === h || host.endsWith('.' + h));
   };
 
+  const isOAuthHost = (rawUrl) => {
+    let u;
+    try { u = new URL(rawUrl); } catch { return false; }
+    const host = u.hostname.toLowerCase();
+    return host === 'google.com' || host.endsWith('.google.com') ||
+           host === 'apple.com' || host.endsWith('.apple.com');
+  };
+
+  let lastOAuthPromptTime = 0;
+  const notifyOAuthRedirect = () => {
+    const now = Date.now();
+    if (now - lastOAuthPromptTime < 10000) return;
+    lastOAuthPromptTime = now;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Đăng nhập bên ngoài',
+        message: 'Google/Apple chặn đăng nhập trực tiếp trong ứng dụng.',
+        detail: 'Trang đăng nhập đang được mở bằng trình duyệt mặc định của hệ thống.\n\nKhuyến nghị: Để có trải nghiệm ổn định và đồng bộ nhất trên Messlỏ, bạn nên đăng nhập trực tiếp bằng Email/Số điện thoại và Mật khẩu Facebook.',
+        buttons: ['Đã hiểu'],
+      }).catch(() => {});
+    }
+  };
+
   contents.setWindowOpenHandler(({ url }) => {
-    // Chỉ cho phép popup từ host hợp lệ qua HTTPS; còn lại mở bằng trình duyệt ngoài
-    const isAllowed = isAllowedHost(url, ALLOWED_POPUP_HOSTS);
+    // Chỉ popup từ Facebook/Messenger mới được mở trong app
+    const isAllowed = isAllowedHost(url, IN_APP_HOSTS);
     if (isAllowed) {
       return {
         action: 'allow',
@@ -356,21 +494,57 @@ function setupWebContents(contents, profileId) {
           parent: mainWindow,
           modal: false,
           webPreferences: {
-            // Kế thừa session/partition từ BrowserView cha (QUAN TRỌNG cho OAuth)
-            // Electron tự động dùng cùng session nếu không chỉ định partition
             nodeIntegration: false,
             contextIsolation: true,
           },
         },
       };
     }
+    if (isOAuthHost(url)) notifyOAuthRedirect();
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // ── Chặn BrowserView chính điều hướng sang host bên ngoài (Google OAuth, link chat, v.v.) ──
+  contents.on('will-navigate', (event, navUrl) => {
+    if (!isAllowedHost(navUrl, IN_APP_HOSTS)) {
+      event.preventDefault();
+      if (isOAuthHost(navUrl)) notifyOAuthRedirect();
+      shell.openExternal(navUrl);
+    }
+  });
+
+  // ── Chặn HTTP 302/303 redirect chuyển hướng BrowserView sang host bên ngoài ──
+  contents.on('will-redirect', (event, redirectUrl) => {
+    if (!isAllowedHost(redirectUrl, IN_APP_HOSTS)) {
+      event.preventDefault();
+      if (isOAuthHost(redirectUrl)) notifyOAuthRedirect();
+      shell.openExternal(redirectUrl);
+    }
   });
 
   // ── Xử lý OAuth redirect: tự đóng popup khi quay về Facebook ──
   contents.on('did-create-window', (childWindow) => {
     const childContents = childWindow.webContents;
+
+    // Chặn popup con chuyển hướng ra host bên ngoài
+    childContents.on('will-navigate', (event, navUrl) => {
+      if (!isAllowedHost(navUrl, IN_APP_HOSTS)) {
+        event.preventDefault();
+        if (isOAuthHost(navUrl)) notifyOAuthRedirect();
+        shell.openExternal(navUrl);
+        if (!childWindow.isDestroyed()) childWindow.close();
+      }
+    });
+
+    childContents.on('will-redirect', (event, redirectUrl) => {
+      if (!isAllowedHost(redirectUrl, IN_APP_HOSTS)) {
+        event.preventDefault();
+        if (isOAuthHost(redirectUrl)) notifyOAuthRedirect();
+        shell.openExternal(redirectUrl);
+        if (!childWindow.isDestroyed()) childWindow.close();
+      }
+    });
 
     // Cho phép OAuth flow hoàn tất tự nhiên trong popup
     // Chỉ đóng popup khi đã redirect hoàn tất về trang Facebook chính
@@ -548,6 +722,69 @@ function createWindow() {
   app.on('session-created', (sess) => {
     // Setup download handler on every new session
     setupDownloadHandler(sess);
+
+    // Đặt UA chuẩn cho TOÀN BỘ session — quyết định giá trị `navigator.userAgent`
+    // mà JS phía trang web (kể cả popup OAuth) đọc được. Riêng header HTTP thật
+    // sự gửi đi được ép lại ở onBeforeSendHeaders bên dưới (xem lý do ở đó).
+    sess.setUserAgent(USER_AGENT);
+
+    // Xử lý bước xác thực Passkey/WebAuthn (vd Facebook yêu cầu xác nhận qua
+    // tài khoản Google liên kết bằng passkey). Electron KHÔNG có UI mặc định
+    // để chọn passkey khi navigator.credentials.get() trả về nhiều credential
+    // — nếu app không lắng nghe sự kiện này, request bị Electron tự hủy với
+    // lỗi NotAllowedError, khiến trang hiện lại màn "Couldn't sign you in".
+    sess.on('select-webauthn-account', async (event, details, callback) => {
+      const accounts = details.accounts || [];
+      if (accounts.length === 0) { callback(); return; }
+      if (accounts.length === 1) { callback(accounts[0].credentialId); return; }
+
+      try {
+        const labels = accounts.map(a => a.displayName || a.name || a.userHandle || a.credentialId);
+        const result = await dialog.showMessageBox({
+          type: 'question',
+          title: 'Chọn tài khoản đăng nhập',
+          message: 'Chọn tài khoản/passkey để xác thực:',
+          buttons: [...labels, 'Hủy'],
+          cancelId: labels.length,
+        });
+        callback(accounts[result.response]?.credentialId);
+      } catch {
+        callback();
+      }
+    });
+
+    // Ép cứng header User-Agent + Client Hints (sec-ch-ua*) ở tầng network cho
+    // MỌI request trong session này (kể cả popup OAuth) — session.setUserAgent()
+    // không kịp áp dụng cho request ĐẦU TIÊN của popup mới tạo (race giữa lúc
+    // popup bắt đầu điều hướng và lúc did-create-window chạy), và Chromium tự
+    // sinh sec-ch-ua theo ENGINE THẬT (Chromium 122) bất kể UA đã giả lập,
+    // khiến 2 tín hiệu mâu thuẫn nhau — chính là dấu hiệu Google dùng để chặn
+    // (Error 400: disallowed_useragent) khi đăng nhập Facebook qua Google liên kết.
+    sess.webRequest.onBeforeSendHeaders((details, callback) => {
+      try {
+        const headers = { ...details.requestHeaders };
+        for (const key of Object.keys(headers)) {
+          if (key.toLowerCase() === 'user-agent') delete headers[key];
+        }
+        headers['User-Agent'] = USER_AGENT;
+
+        // Chỉ SỬA GIÁ TRỊ các header sec-ch-ua* mà Chromium đã tự quyết định gửi
+        // (giữ nguyên logic high-entropy hint gốc của Chromium), để khớp với UA
+        // đã giả lập ở trên.
+        const hints = buildClientHints(USER_AGENT);
+        for (const key of Object.keys(headers)) {
+          const lower = key.toLowerCase();
+          if (lower.startsWith('sec-ch-ua') && hints[lower] !== undefined) {
+            delete headers[key];
+            headers[lower] = hints[lower];
+          }
+        }
+
+        callback({ requestHeaders: headers });
+      } catch {
+        callback({});
+      }
+    });
 
     sess.webRequest.onBeforeRequest({ urls: ['*://*.facebook.com/*', '*://*.messenger.com/*'] }, (details, callback) => {
       let cancel = false;
@@ -890,6 +1127,7 @@ function registerGlobalShortcuts() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   nativeTheme.themeSource = settings.isDarkMode ? 'dark' : 'light';
+  maybeRefreshUserAgent();
   createWindow();
   createTray();
   registerGlobalShortcuts();
